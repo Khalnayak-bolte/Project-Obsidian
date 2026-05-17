@@ -1,0 +1,638 @@
+service: obsidian-backend
+
+frameworkVersion: "^3"
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+
+useDotenv: true
+
+# ─── Provider ─────────────────────────────────────────────────────────────────
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  region: ${env:AWS_REGION, "ap-south-1"}
+  stage: ${opt:stage, "dev"}
+  memorySize: 512
+  timeout: 29
+  logRetentionInDays: 14
+  versionFunctions: false
+
+  # ── Environment Variables (injected into every Lambda) ──
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    AWS_ACCOUNT_ID: ${aws:accountId}
+    AWS_REGION: ${self:provider.region}
+
+    # Firebase
+    FIREBASE_SERVICE_ACCOUNT_JSON: ${env:FIREBASE_SERVICE_ACCOUNT_JSON}
+    FIREBASE_DATABASE_URL: ${env:FIREBASE_DATABASE_URL}
+    FIREBASE_STORAGE_BUCKET: ${env:FIREBASE_STORAGE_BUCKET}
+
+    # AWS Resources
+    AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, "obsidian-files-${self:provider.stage}"}
+    AWS_CLOUDFRONT_URL: ${env:AWS_CLOUDFRONT_URL}
+    AWS_EVENTBRIDGE_BUS: ${env:AWS_EVENTBRIDGE_BUS, "obsidian-events-${self:provider.stage}"}
+    AWS_SQS_NOTIFICATION_QUEUE: ${env:AWS_SQS_NOTIFICATION_QUEUE}
+    AWS_SQS_EMAIL_QUEUE: ${env:AWS_SQS_EMAIL_QUEUE}
+    AWS_SQS_CLEANUP_QUEUE: ${env:AWS_SQS_CLEANUP_QUEUE}
+    AWS_SES_FROM_EMAIL: ${env:AWS_SES_FROM_EMAIL, "noreply@obsidian.app"}
+
+    # Chime
+    CHIME_MEDIA_REGION: ${env:CHIME_MEDIA_REGION, "ap-southeast-1"}
+
+    # Razorpay
+    RAZORPAY_KEY_ID: ${env:RAZORPAY_KEY_ID}
+    RAZORPAY_KEY_SECRET: ${env:RAZORPAY_KEY_SECRET}
+    RAZORPAY_WEBHOOK_SECRET: ${env:RAZORPAY_WEBHOOK_SECRET}
+
+    # App
+    FRONTEND_URL: ${env:FRONTEND_URL, "http://localhost:5173"}
+    PORT: "8080"
+
+  # ── IAM Role Statements ──
+  iam:
+    role:
+      statements:
+        # S3 — workspace file storage
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:GetObjectAttributes
+          Resource: "arn:aws:s3:::${self:provider.environment.AWS_S3_BUCKET}/*"
+
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource: "arn:aws:s3:::${self:provider.environment.AWS_S3_BUCKET}"
+
+        # EventBridge — publish domain events
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource: "arn:aws:events:${self:provider.region}:${aws:accountId}:event-bus/${self:provider.environment.AWS_EVENTBRIDGE_BUS}"
+
+        # SQS — send to all Obsidian queues
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            - sqs:ChangeMessageVisibility
+          Resource:
+            - "arn:aws:sqs:${self:provider.region}:${aws:accountId}:obsidian-notification-*"
+            - "arn:aws:sqs:${self:provider.region}:${aws:accountId}:obsidian-email-*"
+            - "arn:aws:sqs:${self:provider.region}:${aws:accountId}:obsidian-cleanup-*"
+
+        # SES — send transactional emails
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: "*"
+
+        # Chime SDK — create/delete meetings and attendees
+        - Effect: Allow
+          Action:
+            - chime:CreateMeeting
+            - chime:DeleteMeeting
+            - chime:GetMeeting
+            - chime:ListMeetings
+            - chime:CreateAttendee
+            - chime:DeleteAttendee
+            - chime:ListAttendees
+          Resource: "*"
+
+        # Secrets Manager — read API keys at runtime
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: "arn:aws:secretsmanager:${self:provider.region}:${aws:accountId}:secret:obsidian/*"
+
+        # CloudWatch Logs
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+
+        # X-Ray tracing
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+
+  # ── API Gateway ──
+  apiGateway:
+    binaryMediaTypes:
+      - "multipart/form-data"
+      - "application/octet-stream"
+    minimumCompressionSize: 1024
+
+  # ── X-Ray ──
+  tracing:
+    apiGateway: true
+    lambda: true
+
+# ─── Packaging ────────────────────────────────────────────────────────────────
+
+package:
+  individually: true
+  patterns:
+    - "!node_modules/.cache/**"
+    - "!**/*.test.ts"
+    - "!**/*.spec.ts"
+    - "!**/__tests__/**"
+    - "!coverage/**"
+    - "!.github/**"
+
+# ─── Functions ────────────────────────────────────────────────────────────────
+
+functions:
+
+  # ── Auth ──────────────────────────────────────────────────────────────────
+  auth:
+    handler: functions/authHandler.handler
+    description: "Firebase auth — login, register, token refresh, session management"
+    memorySize: 256
+    timeout: 10
+    events:
+      - http:
+          path: api/v1/auth/{proxy+}
+          method: ANY
+          cors:
+            origin: ${self:provider.environment.FRONTEND_URL}
+            headers:
+              - Content-Type
+              - Authorization
+              - x-workspace-id
+            allowCredentials: true
+      - http:
+          path: api/v1/auth
+          method: ANY
+          cors: true
+    package:
+      patterns:
+        - "functions/authHandler.js"
+        - "routes/auth.routes.js"
+        - "controllers/authController.js"
+        - "services/authService.js"
+        - "middleware/**"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+        - "schemas/auth.schema.js"
+        - "repositories/userRepository.js"
+
+  # ── Workspace ────────────────────────────────────────────────────────────
+  workspace:
+    handler: functions/workspaceHandler.handler
+    description: "Workspace CRUD, members, roles, invites, presence"
+    memorySize: 512
+    timeout: 20
+    events:
+      - http:
+          path: api/v1/workspaces/{proxy+}
+          method: ANY
+          cors:
+            origin: ${self:provider.environment.FRONTEND_URL}
+            headers:
+              - Content-Type
+              - Authorization
+              - x-workspace-id
+            allowCredentials: true
+      - http:
+          path: api/v1/workspaces
+          method: ANY
+          cors: true
+      - http:
+          path: api/v1/channels/{proxy+}
+          method: ANY
+          cors: true
+      - http:
+          path: api/v1/channels
+          method: ANY
+          cors: true
+      - http:
+          path: api/v1/messages/{proxy+}
+          method: ANY
+          cors: true
+      - http:
+          path: api/v1/messages
+          method: ANY
+          cors: true
+      - http:
+          path: api/v1/admin/{proxy+}
+          method: ANY
+          cors: true
+    package:
+      patterns:
+        - "functions/workspaceHandler.js"
+        - "routes/workspace.routes.js"
+        - "routes/channel.routes.js"
+        - "routes/message.routes.js"
+        - "routes/admin.routes.js"
+        - "controllers/workspaceController.js"
+        - "controllers/channelController.js"
+        - "controllers/messageController.js"
+        - "controllers/adminController.js"
+        - "services/workspaceService.js"
+        - "services/channelService.js"
+        - "services/messageService.js"
+        - "services/presenceService.js"
+        - "services/notificationService.js"
+        - "middleware/**"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+        - "schemas/**"
+        - "repositories/**"
+        - "events/eventBridge.js"
+
+  # ── Voice ────────────────────────────────────────────────────────────────
+  voice:
+    handler: functions/voiceHandler.handler
+    description: "Amazon Chime SDK — join/leave voice rooms, attendee management"
+    memorySize: 512
+    timeout: 15
+    events:
+      - http:
+          path: api/v1/voice/{proxy+}
+          method: ANY
+          cors:
+            origin: ${self:provider.environment.FRONTEND_URL}
+            headers:
+              - Content-Type
+              - Authorization
+              - x-workspace-id
+            allowCredentials: true
+      - http:
+          path: api/v1/voice
+          method: ANY
+          cors: true
+    package:
+      patterns:
+        - "functions/voiceHandler.js"
+        - "routes/voice.routes.js"
+        - "controllers/voiceController.js"
+        - "services/voiceService.js"
+        - "middleware/**"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+        - "schemas/voice.schema.js"
+        - "repositories/voiceRepository.js"
+        - "events/eventBridge.js"
+
+  # ── File ─────────────────────────────────────────────────────────────────
+  file:
+    handler: functions/fileHandler.handler
+    description: "S3 signed URL generation, file metadata, upload pipeline"
+    memorySize: 256
+    timeout: 15
+    events:
+      - http:
+          path: api/v1/files/{proxy+}
+          method: ANY
+          cors:
+            origin: ${self:provider.environment.FRONTEND_URL}
+            headers:
+              - Content-Type
+              - Authorization
+              - x-workspace-id
+            allowCredentials: true
+      - http:
+          path: api/v1/files
+          method: ANY
+          cors: true
+    package:
+      patterns:
+        - "functions/fileHandler.js"
+        - "routes/file.routes.js"
+        - "controllers/fileController.js"
+        - "services/fileService.js"
+        - "middleware/**"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+        - "schemas/file.schema.js"
+        - "repositories/fileRepository.js"
+        - "events/eventBridge.js"
+
+  # ── Payment ───────────────────────────────────────────────────────────────
+  payment:
+    handler: functions/paymentHandler.handler
+    description: "Razorpay order creation, payment verification, subscription management"
+    memorySize: 256
+    timeout: 20
+    events:
+      - http:
+          path: api/v1/payments/{proxy+}
+          method: ANY
+          cors:
+            origin: ${self:provider.environment.FRONTEND_URL}
+            headers:
+              - Content-Type
+              - Authorization
+              - x-workspace-id
+            allowCredentials: true
+      - http:
+          path: api/v1/payments
+          method: ANY
+          cors: true
+    package:
+      patterns:
+        - "functions/paymentHandler.js"
+        - "routes/payment.routes.js"
+        - "controllers/paymentController.js"
+        - "services/billingService.js"
+        - "middleware/**"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+        - "schemas/payment.schema.js"
+        - "repositories/subscriptionRepository.js"
+        - "events/eventBridge.js"
+
+  # ── Webhook (Razorpay) ────────────────────────────────────────────────────
+  webhook:
+    handler: functions/webhookHandler.handler
+    description: "Razorpay webhook receiver — HMAC verified, idempotent processing"
+    memorySize: 256
+    timeout: 20
+    # Raw body passthrough — CRITICAL for HMAC signature verification
+    events:
+      - http:
+          path: api/v1/payments/webhook
+          method: POST
+          cors: false
+          # Do NOT transform the body — Razorpay signature is computed on raw bytes
+    package:
+      patterns:
+        - "functions/webhookHandler.js"
+        - "services/billingService.js"
+        - "services/notificationService.js"
+        - "middleware/**"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+        - "schemas/payment.schema.js"
+        - "repositories/subscriptionRepository.js"
+        - "events/eventBridge.js"
+
+  # ── SQS: Notification Queue Consumer ─────────────────────────────────────
+  sqsNotification:
+    handler: events/sqsHandler.handleNotificationQueue
+    description: "SQS consumer — FCM push and in-app notification delivery"
+    memorySize: 256
+    timeout: 60
+    reservedConcurrency: 5
+    events:
+      - sqs:
+          arn: ${env:AWS_SQS_NOTIFICATION_QUEUE_ARN}
+          batchSize: 10
+          maximumBatchingWindow: 5
+          functionResponseType: ReportBatchItemFailures
+    package:
+      patterns:
+        - "events/sqsHandler.js"
+        - "services/notificationService.js"
+        - "config/**"
+        - "utils/**"
+        - "types/**"
+
+  # ── SQS: Email Queue Consumer ─────────────────────────────────────────────
+  sqsEmail:
+    handler: events/sqsHandler.handleEmailQueue
+    description: "SQS consumer — SES transactional email delivery"
+    memorySize: 256
+    timeout: 60
+    reservedConcurrency: 3
+    events:
+      - sqs:
+          arn: ${env:AWS_SQS_EMAIL_QUEUE_ARN}
+          batchSize: 5
+          maximumBatchingWindow: 10
+          functionResponseType: ReportBatchItemFailures
+    package:
+      patterns:
+        - "events/sqsHandler.js"
+        - "config/**"
+        - "utils/**"
+
+  # ── SQS: Cleanup Queue Consumer ───────────────────────────────────────────
+  sqsCleanup:
+    handler: events/sqsHandler.handleCleanupQueue
+    description: "SQS consumer — voice session cleanup, stale presence, orphan files"
+    memorySize: 256
+    timeout: 120
+    reservedConcurrency: 2
+    events:
+      - sqs:
+          arn: ${env:AWS_SQS_CLEANUP_QUEUE_ARN}
+          batchSize: 5
+          maximumBatchingWindow: 30
+          functionResponseType: ReportBatchItemFailures
+    package:
+      patterns:
+        - "events/sqsHandler.js"
+        - "services/presenceService.js"
+        - "config/**"
+        - "utils/**"
+
+  # ── EventBridge: Domain Event Consumer ───────────────────────────────────
+  eventBridgeConsumer:
+    handler: events/eventBridge.createEventBridgeRouter
+    description: "EventBridge consumer — reacts to domain events for analytics and side-effects"
+    memorySize: 256
+    timeout: 30
+    events:
+      - eventBridge:
+          eventBus: ${self:provider.environment.AWS_EVENTBRIDGE_BUS}
+          pattern:
+            source:
+              - "obsidian.backend"
+    package:
+      patterns:
+        - "events/eventBridge.js"
+        - "config/**"
+        - "utils/**"
+
+# ─── Custom ───────────────────────────────────────────────────────────────────
+
+custom:
+  # serverless-plugin-typescript
+  typescript:
+    tsConfigFileLocation: "./tsconfig.json"
+
+  # serverless-offline (local dev)
+  serverless-offline:
+    httpPort: 4000
+    host: "0.0.0.0"
+    noPrependStageInUrl: true
+    reloadHandler: true
+
+  # Stage-specific overrides
+  stages:
+    dev:
+      logLevel: debug
+      provisionedConcurrency: 0
+    staging:
+      logLevel: info
+      provisionedConcurrency: 0
+    prod:
+      logLevel: warn
+      provisionedConcurrency: 1
+
+# ─── Resources (CloudFormation) ───────────────────────────────────────────────
+
+resources:
+  Resources:
+
+    # ── API Gateway 4xx / 5xx response models ──
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'${self:provider.environment.FRONTEND_URL}'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,x-workspace-id'"
+        ResponseType: DEFAULT_4XX
+        RestApiId: !Ref ApiGatewayRestApi
+
+    GatewayResponseDefault5XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'${self:provider.environment.FRONTEND_URL}'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,x-workspace-id'"
+        ResponseType: DEFAULT_5XX
+        RestApiId: !Ref ApiGatewayRestApi
+
+    # ── SQS: Notification Queue ──
+    ObsidianNotificationQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "obsidian-notification-${self:provider.stage}.fifo"
+        FifoQueue: true
+        ContentBasedDeduplication: false
+        VisibilityTimeout: 60
+        MessageRetentionPeriod: 86400
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt ObsidianNotificationDLQ.Arn
+          maxReceiveCount: 3
+
+    ObsidianNotificationDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "obsidian-notification-dlq-${self:provider.stage}.fifo"
+        FifoQueue: true
+        MessageRetentionPeriod: 1209600
+
+    # ── SQS: Email Queue ──
+    ObsidianEmailQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "obsidian-email-${self:provider.stage}.fifo"
+        FifoQueue: true
+        ContentBasedDeduplication: false
+        VisibilityTimeout: 60
+        MessageRetentionPeriod: 86400
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt ObsidianEmailDLQ.Arn
+          maxReceiveCount: 3
+
+    ObsidianEmailDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "obsidian-email-dlq-${self:provider.stage}.fifo"
+        FifoQueue: true
+        MessageRetentionPeriod: 1209600
+
+    # ── SQS: Cleanup Queue ──
+    ObsidianCleanupQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "obsidian-cleanup-${self:provider.stage}"
+        VisibilityTimeout: 120
+        MessageRetentionPeriod: 3600
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt ObsidianCleanupDLQ.Arn
+          maxReceiveCount: 2
+
+    ObsidianCleanupDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "obsidian-cleanup-dlq-${self:provider.stage}"
+        MessageRetentionPeriod: 604800
+
+    # ── EventBridge: Custom Event Bus ──
+    ObsidianEventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: "obsidian-events-${self:provider.stage}"
+
+    # ── CloudWatch: Lambda error alarms ──
+    AuthLambdaErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: "obsidian-auth-errors-${self:provider.stage}"
+        AlarmDescription: "Auth Lambda error rate > 5 in 5 minutes"
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 5
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref AuthLambdaFunction
+
+    PaymentLambdaErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: "obsidian-payment-errors-${self:provider.stage}"
+        AlarmDescription: "Payment Lambda any error triggers alert"
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 60
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref PaymentLambdaFunction
+
+  Outputs:
+    NotificationQueueUrl:
+      Value: !Ref ObsidianNotificationQueue
+      Export:
+        Name: "obsidian-notification-queue-${self:provider.stage}"
+
+    EmailQueueUrl:
+      Value: !Ref ObsidianEmailQueue
+      Export:
+        Name: "obsidian-email-queue-${self:provider.stage}"
+
+    CleanupQueueUrl:
+      Value: !Ref ObsidianCleanupQueue
+      Export:
+        Name: "obsidian-cleanup-queue-${self:provider.stage}"
+
+    EventBusName:
+      Value: !Ref ObsidianEventBus
+      Export:
+        Name: "obsidian-event-bus-${self:provider.stage}"
+
+    ApiGatewayUrl:
+      Value: !Sub "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+      Export:
+        Name: "obsidian-api-url-${self:provider.stage}"
