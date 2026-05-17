@@ -1,0 +1,40 @@
+import { ApiSuccess, ApiError, ErrorCode } from "../types/common";
+export declare const generateId: (prefix?: string) => string;
+export declare const generateWorkspaceId: () => string;
+export declare const generateChannelId: () => string;
+export declare const generateMessageId: () => string;
+export declare const generateFileId: () => string;
+export declare const generateInviteId: () => string;
+export declare const generateSessionId: () => string;
+export declare const generatePaymentId: () => string;
+export declare const generateInvoiceId: () => string;
+export declare const generateWebhookId: () => string;
+export declare const generateRoleId: () => string;
+export declare const generateSlug: (name: string) => string;
+export declare const generateUniqueSlug: (name: string, suffix?: string) => string;
+export declare const generateSecureToken: (bytes?: number) => string;
+export declare const hashToken: (token: string) => string;
+export declare const generateInviteToken: () => {
+    raw: string;
+    hashed: string;
+};
+export declare const successResponse: <T>(data: T, message?: string, meta?: ApiSuccess<T>["meta"]) => ApiSuccess<T>;
+export declare const errorResponse: (code: ErrorCode, message: string, details?: unknown) => ApiError;
+export declare const errorCodeToStatus: (code: ErrorCode) => number;
+export declare const parsePaginationParams: (query: Record<string, unknown>, defaultLimit?: number, maxLimit?: number) => {
+    limit: number;
+    cursor?: string;
+};
+export declare const truncate: (str: string, maxLength: number) => string;
+export declare const sanitizeDisplayName: (name: string) => string;
+export declare const isValidEmail: (email: string) => boolean;
+export declare const formatBytes: (bytes: number) => string;
+export declare const addDays: (date: Date, days: number) => Date;
+export declare const addMonths: (date: Date, months: number) => Date;
+export declare const isExpired: (expiresAt: Date) => boolean;
+export declare const omitUndefined: <T extends Record<string, unknown>>(obj: T) => Partial<T>;
+export declare const pick: <T extends object, K extends keyof T>(obj: T, keys: K[]) => Pick<T, K>;
+export declare const omit: <T extends object, K extends keyof T>(obj: T, keys: K[]) => Omit<T, K>;
+export declare const sleep: (ms: number) => Promise<void>;
+export declare const safeJsonParse: <T>(str: string, fallback: T) => T;
+//# sourceMappingURL=helpers.d.ts.map
