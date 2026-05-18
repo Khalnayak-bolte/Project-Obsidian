@@ -1,11 +1,29 @@
 import Razorpay from "razorpay";
 import appConfig from "./appConfig";
 
-// Razorpay client instance
-export const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "",
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "",
-});
+const getRazorpayKeyId = () => process.env.RAZORPAY_KEY_ID || "";
+const getRazorpayKeySecret = () => process.env.RAZORPAY_KEY_SECRET || "";
+
+const hasRazorpayCredentials = () => !!(getRazorpayKeyId() && getRazorpayKeySecret());
+
+let razorpayInstance: Razorpay | null = null;
+
+// Razorpay client instance (lazy initialized)
+export const razorpay = {
+  get instance() {
+    if (!razorpayInstance) {
+      if (!hasRazorpayCredentials()) {
+        console.warn("[Razorpay] No credentials provided. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
+        return null;
+      }
+      razorpayInstance = new Razorpay({
+        key_id: getRazorpayKeyId(),
+        key_secret: getRazorpayKeySecret(),
+      });
+    }
+    return razorpayInstance;
+  }
+};
 
 // Plan IDs from Razorpay dashboard — set these after creating plans
 export const RAZORPAY_PLANS: Record<string, string> = {

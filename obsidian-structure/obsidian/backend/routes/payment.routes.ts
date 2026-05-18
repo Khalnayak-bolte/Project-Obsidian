@@ -34,6 +34,8 @@ import {
   applyCoupon,
   requestRefund,
   handleWebhook,
+  createStandardOrder,
+  verifyStandardPayment,
 } from "../controllers/paymentController";
 
 export const paymentRouter = Router();
@@ -59,11 +61,23 @@ paymentRouter.post(
   createOrder
 );
 
+// POST /api/v1/payments/create-order (Standard Checkout)
+paymentRouter.post(
+  "/create-order",
+  createStandardOrder
+);
+
 // POST /api/v1/payments/verify
 paymentRouter.post(
   "/verify",
   requirePermission("manage_billing"),
   verifyPayment
+);
+
+// POST /api/v1/payments/verify-payment (Standard Checkout)
+paymentRouter.post(
+  "/verify-payment",
+  verifyStandardPayment
 );
 
 // GET /api/v1/payments/billing

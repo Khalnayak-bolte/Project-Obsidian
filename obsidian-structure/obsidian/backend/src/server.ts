@@ -1,10 +1,11 @@
 /**
  * Obsidian Backend - Main Server Entry Point
- * 
+ *
  * This file initializes the Express server and connects all routes,
  * middleware, and services.
  */
 
+import "dotenv/config";
 import express, { type Application, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import { createLogger } from "../utils/logger.js";
@@ -149,7 +150,5 @@ process.on("unhandledRejection", (reason) => {
 // Export for testing
 export default app;
 
-// Start server if run directly
-if (require.main === module) {
-  startServer();
-}
+// Always start server in dev mode
+startServer();

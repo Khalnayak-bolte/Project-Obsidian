@@ -22,8 +22,8 @@ import {
   updateUserProfile,
   upsertDeviceSession,
   getDeviceSession,
-  deactivateDeviceSession,
-  deactivateAllDeviceSessions,
+  revokeDeviceSession,
+  revokeAllDeviceSessions,
   logLoginAttempt,
 } from "../repositories/userRepository";
 import {
@@ -272,7 +272,7 @@ export async function revokeDeviceSession(
   uid: string,
   deviceId: string
 ): Promise<void> {
-  await deactivateDeviceSession(uid, deviceId);
+  await revokeDeviceSession(uid, deviceId);
   logger.info("Device session revoked", { uid, deviceId });
 }
 
@@ -281,7 +281,7 @@ export async function revokeDeviceSession(
 export async function revokeAllSessions(uid: string): Promise<void> {
   await Promise.all([
     auth.revokeRefreshTokens(uid),
-    deactivateAllDeviceSessions(uid),
+    revokeAllDeviceSessions(uid),
   ]);
   logger.info("All sessions revoked", { uid });
 }

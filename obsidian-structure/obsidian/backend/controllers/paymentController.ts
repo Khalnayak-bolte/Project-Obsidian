@@ -46,6 +46,8 @@ import {
   listInvoices as listInvoicesService,
   handleWebhook as handleWebhookService,
 } from "../services/billingService";
+import { razorpay } from "../config/razorpay";
+import { verifyRazorpayPaymentSignature } from "../utils/hmac";
 
 const logger = createLogger("paymentController");
 
@@ -88,6 +90,44 @@ export async function createOrder(
   }
 }
 
+// ─── POST /api/v1/payments/create-order (Standard) ──────────────────────────
+
+export async function createStandardOrder(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { amount, currency = "INR", receipt = `rcpt_${Date.now()}` } = req.body;
+
+    if (!amount || amount < 100) {
+      throw new AppError(
+        "Amount must be at least 100 paise.",
+        HTTP_STATUS.BAD_REQUEST,
+        ERROR_CODES.BAD_REQUEST
+      );
+    }
+
+    const order = await razorpay.instance!.orders.create({
+      amount,
+      currency,
+      receipt,
+    });
+
+    res.status(HTTP_STATUS.CREATED).json({
+      success: true,
+      data: {
+        order_id: order.id,
+        amount: order.amount,
+        currency: order.currency,
+      },
+    });
+  } catch (err) {
+    logger.error("createStandardOrder failed", { error: err });
+    next(new AppError("Failed to create order.", HTTP_STATUS.INTERNAL_ERROR, ERROR_CODES.INTERNAL_ERROR));
+  }
+}
+
 // ─── POST /api/v1/payments/verify ─────────────────────────────────────────────
 
 export async function verifyPayment(
@@ -123,6 +163,50 @@ export async function verifyPayment(
       .json(successResponse(result, "Payment verified. Subscription activated."));
   } catch (err) {
     logger.error("verifyPayment failed", { error: err });
+    next(err);
+  }
+}
+
+// ─── POST /api/v1/payments/verify-payment (Standard) ────────────────────────
+
+export async function verifyStandardPayment(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      throw new AppError(
+        "Missing payment fields.",
+        HTTP_STATUS.BAD_REQUEST,
+        ERROR_CODES.BAD_REQUEST
+      );
+    }
+
+    const secret = process.env.RAZORPAY_KEY_SECRET || "";
+    const isValid = verifyRazorpayPaymentSignature(
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      secret
+    );
+
+    if (!isValid) {
+      throw new AppError(
+        "Payment verification failed — invalid signature",
+        HTTP_STATUS.BAD_REQUEST,
+        ERROR_CODES.BAD_REQUEST
+      );
+    }
+
+    res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: "Payment verified successfully.",
+    });
+  } catch (err) {
+    logger.error("verifyStandardPayment failed", { error: err });
     next(err);
   }
 }

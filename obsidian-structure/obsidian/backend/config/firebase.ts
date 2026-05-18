@@ -1,15 +1,20 @@
-import * as admin from "firebase-admin";
+import admin from "firebase-admin";
 
-let app: admin.app.App;
+let app: admin.app.App | undefined;
 
 const initializeFirebase = (): admin.app.App => {
-  if (admin.apps.length > 0) {
-    return admin.apps[0] as admin.app.App;
+  const apps = admin.apps;
+  if (apps && apps.length > 0) {
+    return apps[0] as admin.app.App;
   }
 
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
     ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
     : undefined;
+
+  if (!serviceAccount && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.warn("[Firebase] No credentials provided. Set FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS");
+  }
 
   app = admin.initializeApp({
     credential: serviceAccount

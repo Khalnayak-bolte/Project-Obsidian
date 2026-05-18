@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import TopNav from '../../components/landing-components/TopNav';
 import PageLoader from '../../components/landing-components/PageLoader';
+import { CheckoutModal } from '../../components/billing/CheckoutModal';
 import './LandingPage.css';
 
 const packages = [
@@ -171,9 +172,14 @@ const LandingPage: React.FC = () => {
                   <li key={i}>{feature}</li>
                 ))}
               </ul>
-              <button className="package-button">
+              <CheckoutModal 
+                amount={parseInt(pkg.price.replace('$', '')) * 100}
+                currency="USD"
+                buttonClassName="package-button"
+                onSuccess={() => alert(`Successfully subscribed to ${pkg.name} plan!`)}
+              >
                 <span>Get Started</span>
-              </button>
+              </CheckoutModal>
             </div>
           ))}
         </div>

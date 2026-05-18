@@ -27,6 +27,13 @@ const appConfig = {
     default: { windowMs: 60 * 1000, max: 100 },
   },
 
+  RATE_LIMITS: {
+    LOGIN_PER_MINUTE: 10,
+    MESSAGES_PER_MINUTE: 60,
+    VOICE_JOIN_PER_MINUTE: 20,
+    UPLOADS_PER_MINUTE: 15,
+  },
+
   subscription: {
     tiers: {
       gold: {
@@ -83,4 +90,5 @@ const appConfig = {
 export type SubscriptionTier = keyof typeof appConfig.subscription.tiers;
 export type TierConfig = typeof appConfig.subscription.tiers.gold;
 
+export const APP_CONFIG = appConfig;
 export default appConfig;

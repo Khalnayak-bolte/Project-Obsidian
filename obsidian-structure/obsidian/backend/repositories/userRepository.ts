@@ -449,3 +449,38 @@ export async function countWorkspaceMembers(workspaceId: string): Promise<number
     throw err;
   }
 }
+
+// ─── Login Attempts ────────────────────────────────────────────────────────────
+
+export interface LoginAttempt {
+  uid: string;
+  email: string;
+  ipAddress: string;
+  userAgent: string;
+  success: boolean;
+  provider: string;
+  attemptedAt: FirebaseFirestore.Timestamp;
+}
+
+export async function logLoginAttempt(params: {
+  uid: string;
+  email: string;
+  ipAddress: string;
+  userAgent: string;
+  success: boolean;
+  provider: string;
+  attemptedAt: FirebaseFirestore.Timestamp;
+}): Promise<void> {
+  try {
+    await db
+      .collection(COLLECTIONS.USERS)
+      .doc(params.uid)
+      .collection("loginAttempts")
+      .add({
+        ...params,
+        attemptedAt: params.attemptedAt || Timestamp.now(),
+      });
+  } catch (err) {
+    logger.error("logLoginAttempt failed", { uid: params.uid, error: err });
+  }
+}

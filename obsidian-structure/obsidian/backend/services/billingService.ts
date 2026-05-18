@@ -65,7 +65,7 @@ export async function createOrder(
     );
   }
 
-  const order = await razorpay.orders.create({
+  const order = await razorpay.instance!.orders.create({
     amount,
     currency: RAZORPAY_CURRENCY,
     receipt: `obs_${workspaceId}_${Date.now()}`,
@@ -187,7 +187,7 @@ export async function cancelSubscription(
   // Cancel on Razorpay if subscription ID exists
   if (subscription.razorpaySubscriptionId) {
     try {
-      await razorpay.subscriptions.cancel(subscription.razorpaySubscriptionId, input.cancelAtPeriodEnd ?? true);
+      await razorpay.instance!.subscriptions.cancel(subscription.razorpaySubscriptionId, input.cancelAtPeriodEnd ?? true);
     } catch (err) {
       logger.error("Razorpay subscription cancel failed", { workspaceId, error: err });
     }
