@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import TopNav from '../../components/landing-components/TopNav';
 import PageLoader from '../../components/landing-components/PageLoader';
-import { CheckoutModal } from '../../components/billing/CheckoutModal';
 import './LandingPage.css';
 
 const packages = [
@@ -99,6 +98,10 @@ const LandingPage: React.FC = () => {
     navigate('/login');
   };
 
+  const handleGetStarted = (planName: string) => {
+    navigate(`/signup?plan=${encodeURIComponent(planName)}`);
+  };
+
   return (
     <div className="landing-container">
       {/* Page Loader */}
@@ -172,14 +175,12 @@ const LandingPage: React.FC = () => {
                   <li key={i}>{feature}</li>
                 ))}
               </ul>
-              <CheckoutModal 
-                amount={parseInt(pkg.price.replace('$', '')) * 100}
-                currency="USD"
-                buttonClassName="package-button"
-                onSuccess={() => alert(`Successfully subscribed to ${pkg.name} plan!`)}
+              <button
+                className="package-button"
+                onClick={() => handleGetStarted(pkg.name)}
               >
                 <span>Get Started</span>
-              </CheckoutModal>
+              </button>
             </div>
           ))}
         </div>

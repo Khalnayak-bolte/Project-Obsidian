@@ -1,7 +1,6 @@
 {
   "name": "obsidian-backend",
   "version": "1.0.0",
-  "type": "module",
   "description": "Obsidian Virtual Office — Backend (AWS Lambda + Firebase)",
   "private": true,
   "engines": {
@@ -9,6 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "nodemon": "npx nodemon server.js",
     "build": "tsc --project tsconfig.json",
     "build:clean": "rm -rf dist && npm run build",
     "start": "node dist/server.js",

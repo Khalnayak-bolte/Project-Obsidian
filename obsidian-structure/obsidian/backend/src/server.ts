@@ -22,6 +22,17 @@ import { voiceRouter } from "../routes/voice.routes.js";
 import { paymentRouter } from "../routes/payment.routes.js";
 import { adminRouter } from "../routes/admin.routes.js";
 
+console.log("Routes loaded:", {
+  auth: !!authRouter,
+  workspace: !!workspaceRouter,
+  channel: !!channelRouter,
+  message: !!messageRouter,
+  file: !!fileRouter,
+  voice: !!voiceRouter,
+  payment: !!paymentRouter,
+  admin: !!adminRouter,
+});
+
 // Import middleware
 import { authenticate } from "../middleware/authMiddleware.js";
 
